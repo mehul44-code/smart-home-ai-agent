@@ -1,0 +1,85 @@
+{
+  "sample_metadata": {
+    "description": "Sample baseline telemetry data for smart home simulation and agent benchmarking",
+    "location": "Suburban Household (Zone 4)",
+    "season": "Summer Peak"
+  },
+  "home_profile": {
+    "living_area_sqm": 160,
+    "thermal_mass_factor": 0.82,
+    "target_temperature_range_c": [21.5, 23.5],
+    "max_allowed_grid_load_kw": 8.5
+  },
+  "sample_telemetry_series": [
+    {
+      "timestamp": "2026-06-15T14:00:00Z",
+      "outdoor_temperature_c": 34.2,
+      "indoor_temperature_c": 24.8,
+      "humidity_pct": 68,
+      "occupancy": true,
+      "occupant_count": 2,
+      "tariff_rate_usd_kwh": 0.32,
+      "tariff_tier": "PEAK",
+      "solar_generation_kw": 2.1,
+      "grid_import_kw": 4.6,
+      "appliances": {
+        "ac_living_room": {
+          "status": "ON",
+          "power_kw": 2.4,
+          "setpoint_c": 22.0,
+          "priority": "HIGH"
+        },
+        "water_heater": {
+          "status": "OFF",
+          "power_kw": 0.0,
+          "priority": "MEDIUM"
+        },
+        "ev_charger": {
+          "status": "OFF",
+          "power_kw": 0.0,
+          "priority": "LOW"
+        },
+        "refrigerator": {
+          "status": "ON",
+          "power_kw": 0.18,
+          "priority": "CRITICAL"
+        }
+      }
+    },
+    {
+      "timestamp": "2026-06-15T14:15:00Z",
+      "outdoor_temperature_c": 35.1,
+      "indoor_temperature_c": 23.9,
+      "humidity_pct": 65,
+      "occupancy": true,
+      "occupant_count": 2,
+      "tariff_rate_usd_kwh": 0.32,
+      "tariff_tier": "PEAK",
+      "solar_generation_kw": 2.2,
+      "grid_import_kw": 3.8,
+      "appliances": {
+        "ac_living_room": {
+          "status": "ECO",
+          "power_kw": 1.6,
+          "setpoint_c": 23.5,
+          "priority": "HIGH"
+        },
+        "water_heater": {
+          "status": "OFF",
+          "power_kw": 0.0,
+          "priority": "MEDIUM"
+        },
+        "ev_charger": {
+          "status": "OFF",
+          "power_kw": 0.0,
+          "priority": "LOW"
+        },
+        "refrigerator": {
+          "status": "ON",
+          "power_kw": 0.18,
+          "priority": "CRITICAL"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "tariff_scheme": "Time-Of-Use (TOU)",
+  "currency": "USD",
+  "unit": "kWh",
+  "schedule": [
+    {
+      "name": "OFF_PEAK",
+      "hours": ["00:00-07:00", "22:00-24:00"],
+      "rate": 0.09
+    },
+    {
+      "name": "STANDARD",
+      "hours": ["07:00-14:00", "20:00-22:00"],
+      "rate": 0.16
+    },
+    {
+      "name": "PEAK",
+      "hours": ["14:00-20:00"],
+      "rate": 0.32
+    },
+    {
+      "name": "CRITICAL_PEAK",
+      "hours": ["17:00-19:00"],
+      "rate": 0.58
+    }
+  ]
+}
