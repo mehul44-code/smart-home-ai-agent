@@ -232,3 +232,65 @@ def test_12_invalid_appliance_actions_rejected_safely(sim):
     # Negative power argument
     res3 = sim.execute_appliance_action("ac_living_room", "SET_POWER", power_watts=-500.0)
     assert res3["success"] is False
+
+    # All action paths, not only SET_POWER, reject invalid electrical loads.
+    res4 = sim.execute_appliance_action("ac_living_room", "ON", power_watts=-500.0)
+    assert res4["success"] is False
+
+
+def test_13_complete_state_includes_required_sensor_and_energy_contract(sim):
+    """The public state includes each requested room, sensor, and energy summary."""
+    state = sim.get_current_home_state()
+
+    assert set(state.rooms) == {"living_room", "bedroom", "kitchen"}
+    assert "sensor_simulated_time" in state.sensors
+    assert state.sensors["sensor_simulated_time"].value == state.timestamp
+    assert "sensor_weather_outdoor_temp" in state.sensors
+    assert "sensor_weather_condition" in state.sensors
+    assert "sensor_tariff_rate" in state.sensors
+    assert "sensor_meter_total_load" in state.sensors
+    assert state.total_energy_kwh >= 0.0
+    assert set(state.room_energy_kwh) >= {"living_room", "bedroom", "kitchen"}
+
+
+def test_14_cost_is_split_when_a_step_crosses_a_tariff_boundary(sim):
+    """Energy from each part of a long step is charged at its own TOU rate."""
+    sim.current_time = datetime.datetime(2026, 6, 15, 16, 30, 0)
+    sim.appliances.appliances["refrigerator"].status = "OFF"
+    sim.appliances.appliances["refrigerator"].power_watts = 0.0
+    sim.execute_appliance_action("ac_living_room", "ON", power_watts=1000.0)
+
+    state = sim.step(dt_minutes=60.0)
+
+    # Half at NORMAL (Rs 8/kWh), half at PEAK (Rs 12/kWh).
+    assert state.estimated_cost_accumulated == pytest.approx(10.0, abs=0.01)
+
+
+def test_15_all_named_demo_scenarios_load(sim):
+    """Public scenario names as well as numbered IDs are accepted."""
+    names = (
+        "NORMAL_HOME",
+        "HOT_OCCUPIED_ROOM",
+        "EMPTY_ROOM",
+        "PEAK_TARIFF",
+        "HIGH_ENERGY_LOAD",
+        "ENERGY_ANOMALY",
+        "USER_OVERRIDE",
+    )
+    for scenario_name in names:
+        result = ScenarioRegistry.apply_scenario(scenario_name, sim)
+        assert result["success"] is True
+
+
+def test_16_paused_simulation_does_not_advance_energy_or_clock(sim):
+    """Pausing freezes the complete physical simulation, not only its displayed clock."""
+    sim.appliances.appliances["refrigerator"].status = "OFF"
+    sim.appliances.appliances["refrigerator"].power_watts = 0.0
+    sim.execute_appliance_action("ac_living_room", "ON", power_watts=1000.0)
+    before = sim.get_current_home_state()
+    sim.pause()
+    after = sim.step(dt_minutes=30.0)
+
+    assert after.simulated_time == before.simulated_time
+    assert after.total_energy_kwh == before.total_energy_kwh
+    assert after.estimated_cost_accumulated == before.estimated_cost_accumulated

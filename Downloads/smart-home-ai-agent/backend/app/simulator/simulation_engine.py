@@ -112,9 +112,14 @@ class SimulationEngine:
         Computes heat flows, power draws, appliance duty cycles, and energy costs.
         """
         dt = dt_minutes if dt_minutes is not None else self.default_step_minutes
+        if dt < 0:
+            raise ValueError("dt_minutes must be non-negative")
 
-        if self.is_running and dt > 0:
-            self.current_time += datetime.timedelta(minutes=dt)
+        step_start_time = self.current_time
+        effective_dt = dt if self.is_running else 0.0
+
+        if effective_dt > 0:
+            self.current_time += datetime.timedelta(minutes=effective_dt)
 
         hour_float = self.current_time.hour + (self.current_time.minute / 60.0) + (self.current_time.second / 3600.0)
 
@@ -124,13 +129,13 @@ class SimulationEngine:
         t_state = self.tariff.calculate_tariff(self.current_time.hour, self.current_time.minute)
 
         # 2. Advance appliance runtimes & power cycles
-        if dt > 0:
-            self.appliances.step_energy(dt)
+        if effective_dt > 0:
+            self.appliances.step_energy(effective_dt)
 
         # 3. Advance multi-room thermodynamic physics
-        if dt > 0:
+        if effective_dt > 0:
             self.environment.step_physics(
-                dt_minutes=dt,
+                dt_minutes=effective_dt,
                 weather=w_state,
                 occupancy=occ_state,
                 appliances=self.appliances,
@@ -141,9 +146,11 @@ class SimulationEngine:
         electrical_totals = self.appliances.calculate_totals()
         total_load_watts = electrical_totals["total_load_watts"]
 
-        if dt > 0:
-            step_kwh = (total_load_watts * (dt / 60.0)) / 1000.0
-            step_cost = step_kwh * t_state.rate
+        if effective_dt > 0:
+            # Price every portion of a long step at the tariff active during that
+            # portion. This keeps a 16:30--17:30 step from being charged entirely
+            # at the 17:30 PEAK rate.
+            step_cost = self._calculate_step_cost(total_load_watts, step_start_time, effective_dt)
             self.cumulative_cost = round(self.cumulative_cost + step_cost, 4)
 
         # 5. Compile room states
@@ -195,6 +202,32 @@ class SimulationEngine:
             active_overrides=overrides,
             active_scenario=self.active_scenario
         )
+
+    def _calculate_step_cost(
+        self,
+        load_watts: float,
+        start_time: datetime.datetime,
+        dt_minutes: float
+    ) -> float:
+        """Return TOU-priced energy cost for a step, including tariff boundaries."""
+        remaining_minutes = dt_minutes
+        cursor = start_time
+        cost = 0.0
+
+        while remaining_minutes > 1e-9:
+            tariff = self.tariff.calculate_tariff(cursor.hour, cursor.minute)
+            # Manual tariff overrides intentionally apply until cleared.
+            minutes_in_tier = (
+                remaining_minutes
+                if self.tariff.manual_override is not None
+                else max(1.0 / 60.0, float(tariff.minutes_until_next_tier))
+            )
+            segment_minutes = min(remaining_minutes, minutes_in_tier)
+            cost += (load_watts * (segment_minutes / 60.0) / 1000.0) * tariff.rate
+            cursor += datetime.timedelta(minutes=segment_minutes)
+            remaining_minutes -= segment_minutes
+
+        return cost
 
     def advance_time(self, minutes: float) -> HomeState:
         """Accelerated simulation fast-forward without real-time delay."""

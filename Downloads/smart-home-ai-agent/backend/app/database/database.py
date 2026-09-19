@@ -22,6 +22,7 @@ class Base(DeclarativeBase):
 
 async def get_db():
     """Dependency for obtaining an async database session."""
+    await init_db()
     async with AsyncSessionLocal() as session:
         try:
             yield session

@@ -1,4 +1,5 @@
 import logging
+import math
 from enum import Enum
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
@@ -269,6 +270,14 @@ class ApplianceManager:
         action_norm = action.upper()
         prev_status = app.status
 
+        if power_watts is not None and (
+            not isinstance(power_watts, (int, float))
+            or isinstance(power_watts, bool)
+            or not math.isfinite(power_watts)
+            or power_watts < 0
+        ):
+            return {"success": False, "error": "power_watts must be a finite non-negative number"}
+
         try:
             if action_norm in ("TURN_ON", "ON"):
                 app.status = "ON"
@@ -299,7 +308,7 @@ class ApplianceManager:
                 logger.info(f"Appliance {app.name} mode set to {app.status} ({app.power_watts}W)")
 
             elif action_norm == "SET_POWER":
-                if power_watts is None or power_watts < 0:
+                if power_watts is None:
                     return {"success": False, "error": "Invalid power_watts argument"}
                 app.power_watts = float(power_watts)
                 if app.power_watts > 0 and app.status == "OFF":

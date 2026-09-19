@@ -44,6 +44,17 @@ class SensorNetwork:
         iso_time = current_time.isoformat()
         readings: Dict[str, SensorReading] = {}
 
+        # Simulation clock. Keeping this in the sensor payload lets consumers use
+        # the same timestamped observation contract for every input signal.
+        readings["sensor_simulated_time"] = SensorReading(
+            sensor_id="sensor_simulated_time",
+            sensor_type="simulated_time",
+            room_id=None,
+            value=iso_time,
+            unit="ISO 8601",
+            timestamp=iso_time
+        )
+
         # 1. Room Environmental Sensors
         for room_id, r in rooms.items():
             # Temperature sensor (calibrated noise: ±0.05°C)
