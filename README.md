@@ -4,7 +4,8 @@ This repository contains the Prompt 2 smart-home simulator, the Prompt 3
 database/API integration, and the Prompt 4 autonomous agent with the Prompt 5
 lightweight ML prediction layer. Prompt 3 stores history and user-supplied
 records; the simulator remains the source of truth for current state. The
-dashboard and future trained production models are intentionally out of scope.
+dashboard is included as the Prompt 6 frontend; future trained production
+models remain out of scope.
 
 ## Start the backend
 
@@ -18,6 +19,27 @@ python -m uvicorn backend.app.main:app --reload
 The SQLite URL is configurable with `DATABASE_URL`, for example
 `sqlite+aiosqlite:///./data/smart_home.db`. Tables are created automatically
 on application startup.
+
+## Prompt 6 dashboard
+
+Install and run the frontend from a separate terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+The dashboard uses the real REST contracts and `WS /ws/home`. Set
+`VITE_BACKEND_URL` when the API is hosted separately (for example,
+`VITE_BACKEND_URL=http://127.0.0.1:8000`). REST hydrates historical and agent
+data while WebSocket state updates keep the home view current. See
+[`docs/dashboard-architecture.md`](docs/dashboard-architecture.md) and the
+competition sequence in [`docs/dashboard-demo.md`](docs/dashboard-demo.md).
+
+If the live indicator is disconnected, confirm the backend is running and
+that the configured URL is reachable; API errors and empty history are shown
+without fabricated values.
 
 ## API
 

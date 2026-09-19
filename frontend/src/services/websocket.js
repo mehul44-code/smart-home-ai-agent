@@ -1,87 +1,52 @@
-/**
- * Real-time WebSocket connection manager for simulation streaming.
- */
+const configuredUrl = import.meta.env.VITE_BACKEND_URL || '';
 
-class SimulationWebSocket {
-  constructor() {
-    this.ws = null;
-    this.listeners = new Map();
-    this.reconnectTimeout = null;
-    this.isConnected = false;
+function socketUrl() {
+  if (configuredUrl) {
+    const url = new URL(configuredUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${url.toString().replace(/\/$/, '')}/ws/home`;
   }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws/home`;
+}
 
+class HomeWebSocket {
+  constructor() { this.listeners = new Map(); this.retry = 0; this.closed = false; }
+  on(event, callback) {
+    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
+    this.listeners.get(event).add(callback);
+    return () => this.listeners.get(event)?.delete(callback);
+  }
+  emit(event, data) { this.listeners.get(event)?.forEach((callback) => callback(data)); }
   connect() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/ws/simulation`;
-
+    this.closed = false;
+    this.emit('status', 'reconnecting');
     try {
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.onopen = () => {
-        this.isConnected = true;
-        this.emit('connection_change', true);
-      };
-
+      this.ws = new WebSocket(socketUrl());
+      this.ws.onopen = () => { this.retry = 0; this.emit('status', 'connected'); };
       this.ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          if (data.event) {
-            this.emit(data.event, data);
-          }
-        } catch (e) {
-          console.error('Failed to parse WS message:', e);
+          const message = JSON.parse(event.data);
+          this.emit(message.event || 'message', message);
+        } catch { this.emit('error', { detail: 'Invalid WebSocket message' }); }
+      };
+      this.ws.onerror = () => this.emit('error', { detail: 'WebSocket connection error' });
+      this.ws.onclose = () => {
+        this.emit('status', 'disconnected');
+        if (!this.closed) {
+          const delay = Math.min(1000 * 2 ** this.retry, 10000);
+          this.retry += 1;
+          this.timer = setTimeout(() => this.connect(), delay);
         }
       };
-
-      this.ws.onclose = () => {
-        this.isConnected = false;
-        this.emit('connection_change', false);
-        this.scheduleReconnect();
-      };
-
-      this.ws.onerror = (err) => {
-        console.warn('WebSocket connection error:', err);
-        this.ws.close();
-      };
-    } catch (err) {
-      this.scheduleReconnect();
-    }
+    } catch (error) { this.emit('error', error); }
   }
-
-  scheduleReconnect() {
-    if (!this.reconnectTimeout) {
-      this.reconnectTimeout = setTimeout(() => {
-        this.reconnectTimeout = null;
-        this.connect();
-      }, 3000);
-    }
-  }
-
-  on(event, callback) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
-    }
-    this.listeners.get(event).add(callback);
-    return () => this.listeners.get(event).delete(callback);
-  }
-
-  emit(event, data) {
-    if (this.listeners.has(event)) {
-      this.listeners.get(event).forEach((cb) => cb(data));
-    }
-  }
-
-  send(data) {
-    if (this.ws && this.isConnected) {
-      this.ws.send(JSON.stringify(data));
-    }
-  }
-
   disconnect() {
-    if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
-    if (this.ws) this.ws.close();
+    this.closed = true;
+    clearTimeout(this.timer);
+    this.ws?.close();
   }
 }
 
-export const simulationSocket = new SimulationWebSocket();
+export const homeSocket = new HomeWebSocket();
+export const simulationSocket = homeSocket;

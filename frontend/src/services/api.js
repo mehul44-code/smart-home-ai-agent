@@ -1,44 +1,44 @@
-/**
- * REST API client for backend communication.
- */
+const configuredUrl = import.meta.env.VITE_BACKEND_URL || '';
+const API_ROOT = `${configuredUrl.replace(/\/$/, '')}/api`;
 
-const BASE_URL = '/api';
+async function request(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${API_ROOT}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
+    return body;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export const api = {
-  async getStatus() {
-    const res = await fetch(`${BASE_URL}/status`);
-    if (!res.ok) throw new Error('Failed to fetch system status');
-    return res.json();
-  },
-
-  async getAppliances() {
-    const res = await fetch(`${BASE_URL}/appliances`);
-    if (!res.ok) throw new Error('Failed to fetch appliances');
-    return res.json();
-  },
-
-  async overrideAppliance(applianceId, data) {
-    const res = await fetch(`${BASE_URL}/appliances/${applianceId}/override`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error('Failed to override appliance');
-    return res.json();
-  },
-
-  async triggerAgentStep() {
-    const res = await fetch(`${BASE_URL}/agent/step`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) throw new Error('Failed to execute agent step');
-    return res.json();
-  },
-
-  async getHistory(limit = 50) {
-    const res = await fetch(`${BASE_URL}/history?limit=${limit}`);
-    if (!res.ok) throw new Error('Failed to fetch telemetry history');
-    return res.json();
-  },
+  getState: () => request('/simulation/state'),
+  getStatus: () => request('/status'),
+  getAppliances: () => request('/appliances'),
+  getEnergy: (limit = 50) => request(`/energy?limit=${limit}`),
+  getTariff: (limit = 50) => request(`/tariff?limit=${limit}`),
+  getPreferences: () => request('/preferences'),
+  getAgentStatus: () => request('/agent/status'),
+  getAgentHistory: (limit = 20) => request(`/agent/history?limit=${limit}`),
+  getAnomalies: (limit = 20) => request(`/anomalies?limit=${limit}`),
+  triggerAgentStep: () => request('/agent/step', { method: 'POST' }),
+  applianceAction: (id, action) => request(`/appliances/${encodeURIComponent(id)}/action`, {
+    method: 'POST', body: JSON.stringify(action),
+  }),
+  overrideAppliance: (id, action) => request(`/override?appliance_id=${encodeURIComponent(id)}`, {
+    method: 'POST', body: JSON.stringify({ ...action, is_user_override: true, source: 'USER' }),
+  }),
+  savePreferences: (preferences) => request('/preferences', {
+    method: 'POST', body: JSON.stringify(preferences),
+  }),
+  loadScenario: (scenario_id) => request('/simulation/scenario', {
+    method: 'POST', body: JSON.stringify({ scenario_id }),
+  }),
 };
