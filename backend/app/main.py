@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app.config import settings
 from backend.app.database.database import init_db
@@ -25,6 +27,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+@app.exception_handler(SQLAlchemyError)
+async def database_error_handler(request: Request, exc: SQLAlchemyError):
+    return JSONResponse(status_code=503, content={"detail": "Database unavailable"})
+
 # CORS middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
@@ -34,7 +41,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount API routers
+# Mount API routers. Keep the established /api namespace and expose the
+# specification's unprefixed paths for clients that use it directly.
+app.include_router(api_router, prefix="/api")
 app.include_router(api_router)
 app.include_router(ws_router)
 
@@ -45,7 +54,7 @@ async def root():
         "service": settings.APP_NAME,
         "status": "active",
         "docs_url": "/docs",
-        "ws_url": "/ws/simulation"
+        "ws_url": "/ws/home"
     }
 
 

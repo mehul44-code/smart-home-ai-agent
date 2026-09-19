@@ -142,13 +142,17 @@ class AnomalyRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     timestamp = Column(DateTime, default=utc_now, index=True, nullable=False)
-    appliance_id = Column(String(64), nullable=True, index=True)
-    expected_power_watts = Column(Float, nullable=False)
-    actual_power_watts = Column(Float, nullable=False)
-    deviation_watts = Column(Float, nullable=False)
+    appliance = Column(String(64), nullable=True, index=True)
+    expected_power = Column(Float, nullable=False)
+    actual_power = Column(Float, nullable=False)
+    deviation = Column(Float, nullable=False)
     severity = Column(String(32), nullable=False)
     status = Column(String(32), nullable=False, default="OPEN")
     details = Column(JSON, nullable=True)
+
+    @property
+    def appliance_id(self):
+        return self.appliance
 
 
 class AgentDecision(Base):
@@ -160,10 +164,14 @@ class AgentDecision(Base):
     reason = Column(Text, nullable=True)
     confidence = Column(Float, nullable=True)
     selected_action = Column(JSON, nullable=True)
-    expected_energy_kwh = Column(Float, nullable=True)
+    expected_energy = Column(Float, nullable=True)
     expected_comfort = Column(Float, nullable=True)
     expected_cost = Column(Float, nullable=True)
     sensor_snapshot = Column(JSON, nullable=True)
     predictions = Column(JSON, nullable=True)
     candidate_actions = Column(JSON, nullable=True)
     candidate_scores = Column(JSON, nullable=True)
+
+    @property
+    def expected_energy_kwh(self):
+        return self.expected_energy

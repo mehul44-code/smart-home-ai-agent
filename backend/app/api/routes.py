@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -20,7 +20,7 @@ from backend.app.database.models import (
 from backend.app.simulator.home_simulator import simulator_instance
 from backend.app.simulator.scenarios import ScenarioRegistry
 
-router = APIRouter(prefix="/api", tags=["Smart Home"])
+router = APIRouter(tags=["Smart Home"])
 
 
 class StepRequest(BaseModel):
@@ -65,7 +65,7 @@ class AgentDecisionRequest(BaseModel):
     reason: str | None = Field(None, max_length=4000)
     confidence: float | None = Field(None, ge=0.0, le=1.0)
     selected_action: dict[str, Any] | None = None
-    expected_energy_kwh: float | None = Field(None, ge=0.0)
+    expected_energy: float | None = Field(None, ge=0.0)
     expected_comfort: float | None = Field(None, ge=0.0, le=100.0)
     expected_cost: float | None = Field(None, ge=0.0)
     sensor_snapshot: dict[str, Any] | None = None
@@ -169,24 +169,39 @@ async def get_preferences(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/simulation/start")
-async def start_simulation():
-    simulator_instance.engine.start()
-    await _broadcast_state()
-    return {"success": True, "state": _json_state()}
+async def start_simulation(db: AsyncSession = Depends(get_db)):
+    try:
+        simulator_instance.engine.start()
+        state = simulator_instance.get_current_home_state()
+        await persist_home_state(db, state)
+        await _broadcast_state()
+        return {"success": True, "state": state.model_dump(mode="json")}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
 
 
 @router.post("/simulation/pause")
-async def pause_simulation():
-    simulator_instance.engine.pause()
-    await _broadcast_state()
-    return {"success": True, "state": _json_state()}
+async def pause_simulation(db: AsyncSession = Depends(get_db)):
+    try:
+        simulator_instance.engine.pause()
+        state = simulator_instance.get_current_home_state()
+        await persist_home_state(db, state)
+        await _broadcast_state()
+        return {"success": True, "state": state.model_dump(mode="json")}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
 
 
 @router.post("/simulation/reset")
-async def reset_simulation():
-    simulator_instance.engine.reset()
-    await _broadcast_state()
-    return {"success": True, "state": _json_state()}
+async def reset_simulation(db: AsyncSession = Depends(get_db)):
+    try:
+        simulator_instance.engine.reset()
+        state = simulator_instance.get_current_home_state()
+        await persist_home_state(db, state)
+        await _broadcast_state()
+        return {"success": True, "state": state.model_dump(mode="json")}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
 
 
 @router.post("/simulation/step")
@@ -262,8 +277,8 @@ async def save_preferences(request: PreferenceRequest, db: AsyncSession = Depend
 async def create_anomaly(request: AnomalyRequest, db: AsyncSession = Depends(get_db)):
     if request.appliance_id and request.appliance_id not in simulator_instance.engine.appliances.appliances:
         raise HTTPException(status_code=404, detail="Unknown appliance")
-    record = AnomalyRecord(appliance_id=request.appliance_id, expected_power_watts=request.expected_power_watts,
-        actual_power_watts=request.actual_power_watts, deviation_watts=request.actual_power_watts - request.expected_power_watts,
+    record = AnomalyRecord(appliance=request.appliance_id, expected_power=request.expected_power_watts,
+        actual_power=request.actual_power_watts, deviation=request.actual_power_watts - request.expected_power_watts,
         severity=request.severity, status=request.status, details=request.details)
     db.add(record)
     await db.commit()
