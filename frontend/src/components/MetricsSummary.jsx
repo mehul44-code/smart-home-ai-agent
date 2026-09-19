@@ -29,7 +29,7 @@ export function MetricsSummary({ state }) {
     },
     {
       title: 'Electricity Tariff',
-      value: `$${state.tariff?.rate?.toFixed(2) ?? '0.16'}/kWh`,
+      value: `₹${Number(state.tariff?.rate ?? 0).toFixed(2)}/kWh`,
       badge: tariffTier,
       badgeClass: tariffBadgeClass,
       icon: <DollarSign size={20} color="var(--accent-emerald)" />,

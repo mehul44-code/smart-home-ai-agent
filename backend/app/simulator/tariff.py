@@ -137,6 +137,9 @@ class TariffManager:
         """Forecast from the configured schedule even when current price is overridden."""
         active_index = next((idx for idx, period in enumerate(self.schedule)
                              if period.start_hour <= current_time_float < period.end_hour), 0)
+        active_period = self.schedule[active_index]
+        if active_period.tier == TariffTier.OFF_PEAK:
+            return 0, active_period.rate
         elapsed = 0.0
         cursor_index = active_index
         cursor_hour = current_time_float

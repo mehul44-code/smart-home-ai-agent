@@ -71,8 +71,17 @@ export function DashboardPage() {
 
   const run = async (key, operation) => {
     setBusy(key); setError('');
-    try { const result = await operation(); if (result?.stage_1_perception) setLastStep(result); await refresh(); }
-    catch (err) { setError(err.message || 'Action failed'); }
+    try {
+      const result = await operation();
+      if (result?.stage_1_perception) {
+        setLastStep(result);
+        if (result.snapshot) {
+          setState(result.snapshot);
+          setStatus((previous) => previous ? { ...previous, simulation_time: result.snapshot.timestamp || previous.simulation_time } : previous);
+        }
+      }
+      await refresh();
+    } catch (err) { setError(err.message || 'Action failed'); }
     finally { setBusy(''); }
   };
   const step = () => run('step', async () => { const result = await api.triggerAgentStep(); setLastStep(result); return result; });
@@ -87,9 +96,10 @@ export function DashboardPage() {
     energy_priority: mode === 'ENERGY_SAVING' ? 0.8 : 0.5, selected_mode: mode, manual_override: false,
   }));
 
-  const rooms = state?.rooms || {};
-  const appliances = state?.appliances || {};
-  const currentTariff = tariff?.current || state?.tariff || {};
+  const cycleState = lastStep?.snapshot || state || {};
+  const rooms = cycleState?.rooms || state?.rooms || {};
+  const appliances = cycleState?.appliances || state?.appliances || {};
+  const currentTariff = cycleState?.tariff || tariff?.current || state?.tariff || {};
   const chartData = useMemo(() => (energy?.history || []).slice().reverse().map((item) => ({
     time: time(item.timestamp), energy: Number(item.energy_kwh || item.total_energy_kwh || 0),
     load: Number(item.total_load_watts || 0) / 1000,
@@ -110,7 +120,7 @@ export function DashboardPage() {
       <Metric icon={Thermometer} label="Indoor temperature" value={`${readable(rooms.living_room?.temperature_c)}°C`} detail={`Humidity ${readable(rooms.living_room?.humidity_pct)}%`} accent="orange" />
       <Metric icon={Users} label="Occupancy" value={state?.occupancy?.total_occupants ?? 0} detail={state?.occupancy?.is_occupied ? 'People detected' : 'No one home'} accent="purple" />
       <Metric icon={Gauge} label="Current load" value={kw(state?.total_load_watts)} detail={`Energy ${readable(state?.total_energy_kwh, '—')} kWh`} accent="blue" />
-      <Metric icon={Zap} label="Electricity tariff" value={tariffName(currentTariff)} detail={currentTariff.rate_per_kwh != null ? `₹${currentTariff.rate_per_kwh}/kWh` : 'Rate unavailable'} accent="green" />
+      <Metric icon={Zap} label="Electricity tariff" value={tariffName(currentTariff)} detail={currentTariff.rate != null ? `₹${Number(currentTariff.rate).toFixed(2)}/kWh now · next off-peak ₹${Number(currentTariff.next_off_peak_rate ?? currentTariff.next_rate ?? currentTariff.rate).toFixed(2)}/kWh in ${currentTariff.next_off_peak_minutes ?? currentTariff.minutes_until_next_tier ?? 0} min` : 'Rate unavailable'} accent="green" />
       <Metric icon={Sparkles} label="Comfort score" value={feedback.comfort_satisfaction_pct != null ? `${feedback.comfort_satisfaction_pct}%` : '—'} detail="Latest agent feedback" accent="teal" />
       <Metric icon={Activity} label="Energy saved" value={lastStep?.stage_4_decision?.estimated_energy_saving_kwh != null ? `${lastStep.stage_4_decision.estimated_energy_saving_kwh} kWh` : '—'} detail="Backend comparison" accent="green" />
     </div>
@@ -125,8 +135,11 @@ export function DashboardPage() {
         {lastStep?.appliance_decisions ? Object.entries(lastStep.appliance_decisions).map(([id, item]) => <div className="mini-list" key={id}>
           <div><span>{id.replaceAll('_', ' ')}</span><b>{item.selected_action || item.chosen_strategy}</b></div>
           <small>{item.reason}</small>
-          {item.schedule && <small>Schedule: {item.schedule.status} in {item.schedule.delay_minutes} min at {item.schedule.target_rate}/kWh</small>}
-          {item.override_respected && <small>Override respected</small>}
+          <small>Load: household {readable(item.household_load_kw)} kW · appliance {readable(item.appliance_load_kw)} kW{item.projected_load_kw != null ? ` · projected ${item.projected_load_kw} kW` : ''}</small>
+          {id === 'washing_machine' && <small>Tariff: ₹{Number(item.current_tariff_rate || 0).toFixed(2)}/kWh now → ₹{Number(item.future_tariff_rate || 0).toFixed(2)}/kWh later · cost ₹{Number(item.current_cost || 0).toFixed(2)} → ₹{Number(item.delayed_cost || 0).toFixed(2)} · saving ₹{Number(item.savings || 0).toFixed(2)}</small>}
+          {id === 'water_heater' && <small>Peak load: +{readable(item.heater_addition_kw)} kW heater → {readable(item.peak_load_after_kw)} kW ({readable(item.peak_status)}); AC {readable(item.ac_interaction)}, washer {readable(item.washing_machine_interaction)}</small>}
+          {item.schedule && <small>Schedule: {item.schedule.status} in {item.schedule.delay_minutes} min at ₹{Number(item.schedule.target_rate || 0).toFixed(2)}/kWh · start {time(item.planned_start)}</small>}
+          <small>Priority: {readable(item.priority)} · {item.override_respected ? 'Override respected' : 'Autonomous control'}</small>
         </div>) : <Empty text="Run an agent step to see appliance recommendations." />}
       </Card>
       <Card title="Why this decision?" eyebrow="Explainable reasoning" icon={Sparkles} className="explain-card">

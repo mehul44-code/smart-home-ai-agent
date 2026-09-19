@@ -18,6 +18,11 @@ class PerceptionEngine:
         occupancy = state.get("occupancy_detail", state.get("occupancy", {}))
         if isinstance(occupancy, bool):
             occupancy = {"is_occupied": occupancy, "total_occupants": int(occupancy)}
+        total_occupants = int(occupancy.get("total_occupants", 0) if isinstance(occupancy, dict) else int(occupancy))
+        is_occupied = bool(occupancy.get("is_occupied", total_occupants > 0) if isinstance(occupancy, dict) else bool(occupancy))
+        if total_occupants < 0:
+            raise ValueError("Invalid occupancy state")
+        occupancy = {"is_occupied": is_occupied, "total_occupants": total_occupants}
         for room_id, room in rooms.items():
             if room.get("temperature_c") is None or room.get("humidity_pct") is None:
                 raise ValueError(f"Missing sensor values for room {room_id}")
@@ -27,8 +32,6 @@ class PerceptionEngine:
                 raise ValueError(f"Invalid humidity for room {room_id}")
             if int(room.get("occupancy_count", 0)) < 0:
                 raise ValueError(f"Invalid occupancy for room {room_id}")
-        if occupancy.get("is_occupied") is None or int(occupancy.get("total_occupants", 0)) < 0:
-            raise ValueError("Invalid occupancy state")
         tariff = state["tariff"]
         tariff_rate = float(tariff.get("rate"))
         if tariff_rate < 0 or not tariff.get("tier"):
@@ -50,7 +53,7 @@ class PerceptionEngine:
             "indoor_temp_c": float(living["temperature_c"]),
             "outdoor_temp_c": float(state["weather"]["outdoor_temperature_c"]),
             "humidity_pct": float(living["humidity_pct"]),
-            "occupancy": bool(occupancy["is_occupied"]),
+            "occupancy": bool(occupancy["is_occupied"] or occupancy.get("total_occupants", 0) > 0),
             "occupant_count": int(occupancy.get("total_occupants", 0)),
             "target_temp_c": target,
             "current_tariff_rate": tariff_rate,

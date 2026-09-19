@@ -17,7 +17,7 @@ class ExplanationEngine:
     ) -> str:
         indoor = percept["indoor_temp_c"]
         outdoor = percept["outdoor_temp_c"]
-        occupancy = percept["occupancy"]
+        occupancy = bool(percept.get("occupancy") or percept.get("occupant_count", 0) > 0)
         tariff_tier = percept["tariff_tier"]
         tariff_rate = percept["current_tariff_rate"]
         strategy = decision["chosen_strategy"]
