@@ -1,42 +1,64 @@
+"""Reproducible, simulator-correlated training data for the lightweight ML layer."""
+from __future__ import annotations
+
+import os
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-import os
 
-def generate_synthetic_thermal_data(num_samples: int = 1000, output_path: str = "data/raw/synthetic_thermal_history.csv"):
+
+def generate_training_data(
+    num_samples: int = 1500, seed: int = 42, output_path: Optional[str] = None
+) -> pd.DataFrame:
+    """Generate correlated home telemetry and labels without mutating the simulator.
+
+    The equations mirror the simulator's thermal/load relationships.  A fixed
+    local RNG makes repeated calls byte-for-byte reproducible.
     """
-    Generates realistic synthetic thermal and power telemetry data
-    for training the thermal drift ML prediction model.
-    """
-    np.random.seed(42)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-    # Features
-    indoor_temp = np.random.uniform(20.0, 28.0, size=num_samples)
-    outdoor_temp = np.random.uniform(18.0, 38.0, size=num_samples)
-    ac_power_kw = np.random.choice([0.0, 1.2, 1.9, 2.5], size=num_samples)
-    occupancy = np.random.choice([0, 1], size=num_samples, p=[0.4, 0.6])
-    horizon_minutes = np.full(num_samples, 15.0)
-
-    # Thermodynamic target: dT = ((T_out - T_in)/2.5 + Q_int - Q_cool)/18.0 * (15/60) + noise
-    q_env = (outdoor_temp - indoor_temp) / 2.5
-    q_int = np.where(occupancy == 1, 0.24, 0.05)
-    q_cool = ac_power_kw * 3.2
-    noise = np.random.normal(0, 0.04, size=num_samples)
-
-    temp_delta_c = ((q_env + q_int - q_cool) / 18.0) * (horizon_minutes / 60.0) + noise
-
+    rng = np.random.default_rng(seed)
+    minutes = rng.uniform(0, 24 * 60, num_samples)
+    hour = minutes / 60
+    indoor = rng.normal(24.2, 2.1, num_samples).clip(18, 32)
+    outdoor = (27 + 6 * np.sin((hour - 8) * np.pi / 12) + rng.normal(0, .8, num_samples))
+    occupancy = ((rng.random(num_samples) < (0.25 + .5 * ((hour >= 7) & (hour <= 22)))).astype(int))
+    occupant_count = occupancy * rng.integers(1, 4, num_samples)
+    humidity = (55 + (outdoor - 25) * 1.2 + rng.normal(0, 4, num_samples)).clip(20, 90)
+    ac_power = np.where(indoor > 24.5, rng.choice([0, 1.2, 1.9], num_samples), 0)
+    base_load = 0.35 + occupant_count * .12 + rng.normal(0, .04, num_samples)
+    total_load = np.maximum(.05, base_load + ac_power + rng.choice([0, .1, .8], num_samples, p=[.55, .3, .15]))
+    target = 22 + rng.normal(0, .3, num_samples)
+    tariff = np.where((hour >= 17) & (hour < 22), 12., np.where((hour < 7) | (hour >= 23), 4., 8.))
+    runtime = np.maximum(0, ac_power > .1).astype(float) * rng.uniform(5, 180, num_samples)
+    historical_avg = np.maximum(.1, total_load * rng.normal(1, .08, num_samples))
+    temp_delta = ((outdoor - indoor) / 2.5 + np.where(occupancy, .24, .05) - ac_power * 3.2) / 18 * .25
+    temp_delta += rng.normal(0, .03, num_samples)
+    energy = np.maximum(0, ac_power * .25 + np.maximum(0, indoor - target) * 18 / 3.2 / 100)
+    comfort = np.clip(100 - np.abs(indoor - target) * 15 - np.maximum(0, humidity - 65) * .25, 0, 100)
+    cooling = np.select([indoor <= target + .5, indoor <= target + 2], ["LOW", "MEDIUM"], default="HIGH")
+    anomaly = ((total_load > historical_avg * 1.35) | (runtime > 160) | (total_load > 5)).astype(int)
     df = pd.DataFrame({
-        "indoor_temp_c": np.round(indoor_temp, 2),
-        "outdoor_temp_c": np.round(outdoor_temp, 2),
-        "ac_power_kw": np.round(ac_power_kw, 2),
-        "occupancy": occupancy,
-        "horizon_minutes": horizon_minutes,
-        "temp_delta_c": np.round(temp_delta_c, 3)
-    })
-
-    df.to_csv(output_path, index=False)
-    print(f"Generated {num_samples} samples saved to {output_path}")
+        "hour": hour, "indoor_temp_c": indoor, "outdoor_temp_c": outdoor,
+        "humidity_pct": humidity, "occupancy": occupancy, "occupant_count": occupant_count,
+        "ac_power_kw": ac_power, "total_load_kw": total_load, "historical_average_kw": historical_avg,
+        "power_kw": total_load,
+        "runtime_minutes": runtime, "target_temp_c": target, "tariff_rate": tariff,
+        "temp_delta_c": temp_delta, "energy_kwh": energy, "comfort_score": comfort,
+        "cooling_level": cooling, "anomaly": anomaly,
+        "actual_load_kw": total_load,
+    }).round(5)
+    if output_path:
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        df.to_csv(output_path, index=False)
     return df
 
+
+def generate_synthetic_thermal_data(num_samples: int = 1000, output_path: str = "data/raw/synthetic_thermal_history.csv"):
+    """Backward-compatible thermal-only export used by Prompt 3 tooling."""
+    return generate_training_data(num_samples, 42, output_path)[
+        ["indoor_temp_c", "outdoor_temp_c", "ac_power_kw", "occupancy", "temp_delta_c"]
+    ].assign(horizon_minutes=15.0)
+
+
 if __name__ == "__main__":
-    generate_synthetic_thermal_data()
+    generate_training_data(output_path="data/raw/synthetic_training_data.csv")
