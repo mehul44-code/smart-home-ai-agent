@@ -1,47 +1,34 @@
-from typing import Dict, Any
-from backend.app.ml.model_loader import ml_manager
+"""Deterministic baseline predictions with an injectable future ML contract."""
+from typing import Any, Callable, Dict
 
 
 class PredictionEngine:
-    """
-    Stage 2: PREDICTION
-    Applies predictive ML models and thermodynamic equations to forecast:
-    - Indoor temperature drift if no action is taken
-    - Required cooling energy to reach comfort target
-    - Expected energy cost under current tariff tier
-    """
+    def __init__(self, predictor: Callable[[Dict[str, Any]], Dict[str, Any]] | None = None):
+        self.predictor = predictor
 
     def predict(self, percept: Dict[str, Any]) -> Dict[str, Any]:
-        indoor_temp = percept["indoor_temp_c"]
-        outdoor_temp = percept["outdoor_temp_c"]
-        target_temp = percept["target_temp_c"]
-        occupancy = percept["occupancy"]
-        tariff_rate = percept["current_tariff_rate"]
-
-        # Predict natural thermal drift over the next 15 minutes (with AC OFF)
-        temp_drift_off = ml_manager.predict_temperature_delta(
-            indoor_temp=indoor_temp,
-            outdoor_temp=outdoor_temp,
-            ac_power_kw=0.0,
-            occupancy=occupancy,
-            horizon_minutes=15.0
-        )
-        predicted_temp_if_off = round(indoor_temp + temp_drift_off, 2)
-
-        # Predict cooling energy required to reach target
-        cooling_energy_needed_kwh = ml_manager.predict_cooling_energy_needed(
-            indoor_temp=indoor_temp,
-            target_temp=target_temp,
-            outdoor_temp=outdoor_temp
-        )
-
-        # Predict projected cost for immediate aggressive cooling
-        projected_cost_immediate = round(cooling_energy_needed_kwh * tariff_rate, 3)
-
+        if self.predictor is not None:
+            return {**self.predictor(percept), "model": "injected_predictor"}
+        indoor, outdoor = percept["indoor_temp_c"], percept["outdoor_temp_c"]
+        target = percept["target_temp_c"]
+        drift = round((outdoor - indoor) * 0.04 + (0.12 if percept["occupancy"] else 0), 3)
+        cooling = round(max(0.0, indoor - target) * 0.18, 3)
+        comfort = max(0.0, min(100.0, 100 - abs(indoor - target) * 15))
+        anomaly = 0.0
+        for appliance in percept["appliances"].values():
+            nominal = float(appliance.get("nominal_power_watts", 0))
+            if nominal:
+                anomaly = max(anomaly, min(1.0, max(0.0, float(appliance.get("power_watts", 0)) / nominal - 1)))
         return {
-            "predicted_temp_if_off_c": predicted_temp_if_off,
-            "projected_temp_drift_c": temp_drift_off,
-            "cooling_energy_needed_kwh": cooling_energy_needed_kwh,
-            "projected_cost_immediate_usd": projected_cost_immediate,
-            "comfort_risk": "HIGH" if (predicted_temp_if_off > target_temp + 2.0 and occupancy) else "LOW"
+            "model": "deterministic_baseline",
+            "horizon_minutes": 15.0,
+            "predicted_temp_if_off_c": round(indoor + drift, 2),
+            "projected_temp_drift_c": drift,
+            "cooling_energy_needed_kwh": cooling,
+            "expected_energy_consumption_kwh": cooling,
+            "projected_cost_immediate_usd": round(cooling * percept["current_tariff_rate"], 3),
+            "comfort_score": round(comfort, 1),
+            "occupancy": percept["occupant_count"],
+            "anomaly_score": round(anomaly, 3),
+            "comfort_risk": "HIGH" if percept["occupancy"] and indoor + drift > target + 1 else "LOW",
         }

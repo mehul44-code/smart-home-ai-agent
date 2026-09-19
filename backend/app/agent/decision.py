@@ -1,61 +1,28 @@
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 
 class DecisionEngine:
-    """
-    Stage 4: DECISION
-    Selects the best overall action from evaluated candidates,
-    incorporating appliance priority rules and peak demand shifting.
-    """
-
-    def decide(self, percept: Dict[str, Any], evaluated_candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
-        best_ac = evaluated_candidates[0]
-        tariff_tier = percept["tariff_tier"]
-        
-        # Decide shiftable secondary loads based on tariff and peak
-        appliance_actions = {
-            "ac_living_room": {
-                "action": "SET_MODE",
-                "status": best_ac["ac_mode"],
-                "power_kw": best_ac["ac_power_kw"],
-                "setpoint_c": best_ac["ac_setpoint"]
-            }
-        }
-
-        # Dynamic load shifting for shiftable devices
-        if tariff_tier in ("PEAK", "CRITICAL_PEAK"):
-            # Defer EV charging and water heater during peak tariffs
-            appliance_actions["ev_charger"] = {
-                "action": "DEFER",
-                "status": "OFF",
-                "power_kw": 0.0,
-                "reason": "Peak tariff in effect. Deferring EV charging to Off-Peak."
-            }
-            appliance_actions["water_heater"] = {
-                "action": "ECO_MAINTAIN",
-                "status": "OFF",
-                "power_kw": 0.0,
-                "reason": "Sufficient water thermal storage. Suspending heating elements."
-            }
+    def decide(self, percept: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        ac = percept["appliances"]["ac_living_room"]
+        override = bool(ac.get("is_user_override") or percept.get("overrides", {}).get("ac_living_room"))
+        if override:
+            chosen = next((c for c in candidates if c["status"] == ac["status"] and
+                           (c["setpoint_c"] is None or c["setpoint_c"] == ac.get("setpoint_c"))), None)
+            if chosen is None:
+                chosen = {"id": "AC_USER_OVERRIDE", "label": "Preserve user override", "status": ac["status"],
+                          "setpoint_c": ac.get("setpoint_c"), "power_kw": float(ac.get("power_watts", 0)) / 1000,
+                          "hourly_cost_usd": float(ac.get("power_watts", 0)) / 1000 * percept["current_tariff_rate"],
+                          "total_loss": 0.0, "total_utility": 0.0, "safe": True}
         else:
-            # Standard or Off-Peak allows charging / heating
-            appliance_actions["ev_charger"] = {
-                "action": "CHARGE",
-                "status": "ON",
-                "power_kw": 3.3,
-                "reason": "Off-peak or standard tariff enables cost-effective charging."
-            }
-            appliance_actions["water_heater"] = {
-                "action": "HEAT",
-                "status": "ON",
-                "power_kw": 1.2,
-                "reason": "Preheating water tank before upcoming peak tier."
-            }
-
+            chosen = min(candidates, key=lambda candidate: candidate["total_loss"])
+        losses = sorted(c["total_loss"] for c in candidates)
+        margin = losses[1] - losses[0] if len(losses) > 1 else 0.0
         return {
-            "chosen_strategy": best_ac["id"],
-            "strategy_label": best_ac["label"],
-            "expected_loss": best_ac["total_loss"],
-            "projected_hourly_cost_usd": best_ac["hourly_cost_usd"],
-            "actions": appliance_actions
+            "chosen_strategy": chosen["id"], "strategy_label": chosen["label"],
+            "expected_loss": chosen["total_loss"], "projected_hourly_cost_usd": chosen["hourly_cost_usd"],
+            "override_respected": override, "decision_margin": round(margin, 3),
+            "decision_margin_type": "deterministic_loss_gap",
+            "actions": {"ac_living_room": {"action": "OFF" if chosen["status"] == "OFF" else "ON",
+                                             "status": chosen["status"], "power_kw": chosen["power_kw"],
+                                             "setpoint_c": chosen["setpoint_c"]}},
         }

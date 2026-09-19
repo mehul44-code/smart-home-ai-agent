@@ -14,7 +14,7 @@ from backend.app.api.websocket import manager
 from backend.app.database.database import get_db
 from backend.app.database.history import persist_appliance_event, persist_home_state
 from backend.app.database.models import (
-    AgentDecision, AgentDecisionLog, AnomalyRecord, EnergyConsumption,
+    AgentDecision, AgentDecisionLog, AnomalyRecord, EnergyConsumption, FeedbackEvent,
     SensorReadingRecord, TariffHistory, UserPreference,
 )
 from backend.app.simulator.home_simulator import simulator_instance
@@ -142,7 +142,11 @@ async def get_tariff(limit: int = Query(0, ge=0, le=500), db: AsyncSession = Dep
 
 @router.get("/agent/status")
 async def get_agent_status():
-    return {"status": "not_enabled", "message": "Autonomous decision-making is not enabled in this project stage."}
+    from backend.app.agent.core import agent_instance
+    state = simulator_instance.get_current_home_state()
+    return {"status": "ready", "enabled": True, "step_count": agent_instance.step_counter,
+            "last_step": agent_instance.last_result.get("step_id") if agent_instance.last_result else None,
+            "simulation_time": state.timestamp}
 
 
 @router.get("/agent/history")
@@ -296,12 +300,40 @@ async def create_agent_decision(request: AgentDecisionRequest, db: AsyncSession 
     return _record_to_dict(record)
 
 
-# Compatibility endpoint retained for existing tests/clients; this task does not
-# add or alter autonomous decision behaviour.
+# Compatibility endpoint retained for existing tests/clients and now backed by
+# structured Prompt 4 decision and feedback persistence.
 @router.post("/agent/step")
 async def legacy_agent_step(db: AsyncSession = Depends(get_db)):
     from backend.app.agent.core import agent_instance
-    result = agent_instance.step()
+    preference = await get_preferences(db)
+    state = simulator_instance.get_current_home_state().model_dump(mode="json")
+    state["preferences"] = preference
+    result = agent_instance.step(state)
+    before = state["appliances"].get("ac_living_room")
+    after = result["consequent_state"]["appliances"].get("ac_living_room")
+    await persist_appliance_event(
+        db, appliance_id="ac_living_room", room="living_room",
+        event_type=result["stage_4_decision"]["chosen_strategy"],
+        previous_state=before, new_state=after, source="AGENT",
+        reason=result["stage_7_explanation"], success=result["stage_5_action"]["success"],
+    )
+    decision = result["stage_4_decision"]
+    selected = next(c for c in result["stage_3_reasoning"]["candidates_evaluated"]
+                    if c["id"] == decision["chosen_strategy"]) if decision["chosen_strategy"] != "AC_USER_OVERRIDE" else {}
+    db.add(AgentDecision(
+        decision=decision["chosen_strategy"],
+        reason=result["stage_7_explanation"],
+        confidence=None,
+        selected_action=decision,
+        expected_energy=selected.get("expected_energy_kwh"),
+        expected_comfort=selected.get("comfort_benefit"),
+        expected_cost=decision.get("projected_hourly_cost_usd"),
+        sensor_snapshot=result["stage_1_perception"],
+        predictions=result["stage_2_prediction"],
+        candidate_actions=result["stage_3_reasoning"]["candidates_evaluated"],
+        candidate_scores={c["id"]: c["total_utility"] for c in result["stage_3_reasoning"]["candidates_evaluated"]},
+    ))
+    db.add(FeedbackEvent(event_type="AGENT_STEP", payload=result["stage_6_feedback"], source="AGENT"))
     db.add(AgentDecisionLog(stage_data=result, selected_action=result["stage_4_decision"]["chosen_strategy"],
         estimated_cost_saving=result["stage_4_decision"].get("projected_hourly_cost_usd", 0.0),
         comfort_score=result["stage_6_feedback"].get("comfort_satisfaction_pct", 100.0) / 100.0,
