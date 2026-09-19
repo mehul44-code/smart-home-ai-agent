@@ -41,6 +41,18 @@ If the live indicator is disconnected, confirm the backend is running and
 that the configured URL is reachable; API errors and empty history are shown
 without fabricated values.
 
+## Prompt 7 appliance autonomy
+
+Agent steps retain the seven AC stages and add structured recommendations for
+the washing machine and water heater. Laundry can run now, be delayed, or be
+scheduled for the simulator's forecast off-peak period; the water heater can
+run now or be delayed. Delayed work is persisted as a schedule and does not
+pretend the appliance ran. Recommendations account for tariff, future rate,
+simultaneous load, power, priority, preferences, safety, and user overrides.
+Use `PEAK_TARIFF_LAUNDRY` and `HIGH_LOAD_WATER_HEATER` in the scenario API.
+History is available from `/api/agent/history`, `/api/agent/feedback`, and
+`/api/agent/decision-logs`.
+
 ## API
 
 Interactive OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.

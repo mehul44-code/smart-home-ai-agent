@@ -67,3 +67,65 @@ class ReasoningEngine:
         if not candidates:
             raise ValueError("No safe candidate actions available")
         return candidates
+
+    def evaluate_appliance_candidates(self, percept: Dict[str, Any], appliance_id: str) -> List[Dict[str, Any]]:
+        """Score the autonomous, shiftable-load candidates without changing AC scoring."""
+        app = percept["appliances"].get(appliance_id)
+        if app is None:
+            raise ValueError(f"Required appliance {appliance_id} is missing")
+        if appliance_id == "washing_machine":
+            actions = ("RUN_NOW", "DELAY", "SCHEDULE_FOR_OFF_PEAK")
+        elif appliance_id == "water_heater":
+            actions = ("RUN_NOW", "DELAY")
+        else:
+            raise ValueError(f"Unsupported autonomous appliance {appliance_id}")
+
+        preferences = percept.get("preferences") or {}
+        energy_priority = float(preferences.get("energy_priority", 0.5))
+        mode = preferences.get("selected_mode", "BALANCED")
+        if mode == "ENERGY_SAVING":
+            energy_priority = max(energy_priority, 0.8)
+        priority_weight = {"CRITICAL": 2.0, "HIGH": 1.5, "MEDIUM": 1.0, "LOW": 0.65}.get(
+            str(app.get("priority", "MEDIUM")), 1.0)
+        current_rate = float(percept["current_tariff_rate"])
+        future_rate = float(percept.get("next_off_peak_rate", percept.get("tariff", {}).get("next_rate", current_rate)))
+        delay_minutes = int(percept.get("next_off_peak_minutes", percept.get("tariff", {}).get("minutes_until_next_tier", 0)))
+        power_kw = float(app.get("nominal_power_watts", app.get("power_watts", 0))) / 1000.0
+        shiftable = bool(app.get("is_shiftable", True))
+        total_load = float(percept["total_power_kw"])
+        peak_limit = self.peak_limit_kw
+        candidates = []
+        for action in actions:
+            delayed = action != "RUN_NOW"
+            rate = future_rate if delayed else current_rate
+            modeled_load = total_load if delayed else total_load + (power_kw if app.get("status") != "ON" else 0.0)
+            cost_now = power_kw * current_rate * 0.5
+            cost_delayed = power_kw * rate * 0.5
+            cost_saving = max(0.0, cost_now - cost_delayed)
+            peak_before = max(0.0, total_load - peak_limit)
+            peak_after = max(0.0, modeled_load - peak_limit)
+            peak_reduction = max(0.0, peak_before - peak_after)
+            safety = (not bool(app.get("is_user_override") or percept.get("overrides", {}).get(appliance_id))
+                      and (not delayed or shiftable))
+            # Shiftable/low-priority loads favor a valid delay; essential loads
+            # retain a bounded preference for immediate execution.
+            shift_penalty = (0.05 * priority_weight if delayed else 0.0)
+            delay_penalty = (delay_minutes / 1440.0) * (1.0 - min(1.0, priority_weight / 2.0)) if delayed else 0.0
+            loss = (energy_priority * (cost_delayed if delayed else cost_now)
+                    + self.gamma * peak_after - self.gamma * peak_reduction
+                    + shift_penalty + delay_penalty)
+            if not safety:
+                loss += 1000.0
+            candidates.append({
+                "id": action,
+                "label": {"RUN_NOW": "Run now", "DELAY": "Delay", "SCHEDULE_FOR_OFF_PEAK": "Schedule for off-peak"}[action],
+                "appliance_id": appliance_id, "safe": safety, "total_loss": round(loss, 4),
+                "total_utility": round(-loss, 4), "rate": rate, "current_rate": current_rate,
+                "target_rate": rate, "delay_minutes": delay_minutes if delayed else 0,
+                "power_kw": power_kw, "load_before_kw": round(total_load, 3),
+                "load_after_kw": round(modeled_load, 3), "peak_reduction_kw": round(peak_reduction, 3),
+                "cost_difference": round(cost_saving if delayed else 0.0, 4),
+                "override_respected": safety,
+                "shiftable": shiftable,
+            })
+        return candidates

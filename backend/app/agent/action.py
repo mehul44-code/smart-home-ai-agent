@@ -13,4 +13,6 @@ class ActionDispatcher:
             details[app_id] = {**command, "applied": bool(result.get("success")), "result": result}
         return {"dispatched_at": simulator_instance.simulation_time.isoformat(),
                 "appliances_affected": list(details), "details": details,
-                "success": all(item["applied"] for item in details.values())}
+                "success": all(item["applied"] for item in details.values()) if details else True,
+                "scheduled": bool(decision.get("schedule")),
+                "execution_status": "EXECUTED" if details else ("SCHEDULED" if decision.get("schedule") else "NO_OP")}

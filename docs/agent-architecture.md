@@ -36,3 +36,14 @@ energy, and the baseline prediction. `/api/agent/step` persists an
 
 The comfort score is a deterministic project-level simulation score, not a
 medical measurement.
+
+## Prompt 7 multi-appliance autonomy
+
+The same perception, tariff model, utility reasoning, decision, simulator
+action, feedback, and persistence path now evaluates only `washing_machine`
+and `water_heater` in addition to the unchanged AC loop. Washing candidates
+are `RUN_NOW`, `DELAY`, and `SCHEDULE_FOR_OFF_PEAK`; water-heater candidates
+are `RUN_NOW` and `DELAY`. A delayed choice is a structured schedule and does
+not mutate appliance state or claim that a cycle ran. Current load, rated
+power, priority/shiftability, preferences, active overrides, current tariff,
+and the simulator's next off-peak forecast are included in the score.

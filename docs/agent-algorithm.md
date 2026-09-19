@@ -51,3 +51,14 @@ candidate is selected, executed through the simulator, observed after five
 simulated minutes, persisted with feedback, and explained. The exact setpoint
 is determined by the configured weights and current simulator state rather than
 an `if temperature > 28` rule.
+
+## Prompt 7 load-shifting decisions
+
+Washing-machine scoring compares `RUN_NOW` with `DELAY` and
+`SCHEDULE_FOR_OFF_PEAK`; water-heater scoring compares `RUN_NOW` with
+`DELAY`. Cost uses the current and forecast off-peak rates from
+`TariffManager`, while peak terms use simultaneous measured load and rated
+power. Low-priority shiftable work is easier to defer, but overrides are hard
+constraints and are explicitly reported. A delay records the target tariff,
+delay, modeled cost difference, load before/after, and `SCHEDULED`/`DELAYED`
+execution status. Only `RUN_NOW` is dispatched as an ON command.

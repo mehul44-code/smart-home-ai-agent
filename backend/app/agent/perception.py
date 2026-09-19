@@ -56,6 +56,8 @@ class PerceptionEngine:
             "current_tariff_rate": tariff_rate,
             "tariff_tier": tariff["tier"],
             "tariff": tariff,
+            "next_off_peak_minutes": int(tariff.get("next_off_peak_minutes", tariff.get("minutes_until_next_tier", 0))),
+            "next_off_peak_rate": float(tariff.get("next_off_peak_rate", tariff.get("next_rate", tariff_rate))),
             "total_power_kw": float(state.get("total_load_watts", 0)) / 1000,
             "total_load_watts": float(state.get("total_load_watts", 0)),
             "total_energy_kwh": float(state.get("total_energy_kwh", 0)),

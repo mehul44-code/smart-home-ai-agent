@@ -31,6 +31,17 @@ class AutonomousAgent:
         decision = self.decision_engine.decide(percept, candidates)
         action = self.action_dispatcher.dispatch(decision)
         decision["action_success"] = action["success"]
+        appliance_decisions = {}
+        appliance_candidates = {}
+        appliance_actions = {}
+        for appliance_id in ("washing_machine", "water_heater"):
+            candidates_for_app = self.reasoning_engine.evaluate_appliance_candidates(percept, appliance_id)
+            app_decision = self.decision_engine.decide_appliance(percept, candidates_for_app, appliance_id)
+            app_action = self.action_dispatcher.dispatch(app_decision)
+            app_decision["action_success"] = app_action["success"]
+            appliance_decisions[appliance_id] = app_decision
+            appliance_candidates[appliance_id] = candidates_for_app
+            appliance_actions[appliance_id] = app_action
         consequent = simulator_instance.engine.step(dt_minutes=5.0)
         observed = self.perception_engine.observe(consequent)
         feedback = self.feedback_engine.evaluate(prediction, observed, decision, percept)
@@ -41,6 +52,9 @@ class AutonomousAgent:
             "stage_3_reasoning": {"candidates_evaluated": candidates, "preferred_candidate": candidates[0]["id"]},
             "stage_4_decision": decision, "stage_5_action": action,
             "stage_6_feedback": feedback, "stage_7_explanation": explanation,
+            "appliance_decisions": appliance_decisions,
+            "appliance_candidates": appliance_candidates,
+            "appliance_actions": appliance_actions,
             "consequent_state": consequent.model_dump(mode="json"),
         }
         self.last_result = result

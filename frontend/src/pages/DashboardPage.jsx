@@ -12,7 +12,8 @@ import { homeSocket } from '../services/websocket';
 const scenarios = [
   ['NORMAL_HOME', 'Normal home'], ['HOT_OCCUPIED_ROOM', 'Hot room'], ['EMPTY_ROOM', 'Empty room'],
   ['PEAK_TARIFF', 'Peak tariff'], ['HIGH_ENERGY_LOAD', 'High energy load'], ['ENERGY_ANOMALY', 'Energy anomaly'],
-  ['USER_OVERRIDE', 'User override'],
+  ['USER_OVERRIDE', 'User override'], ['PEAK_TARIFF_LAUNDRY', 'Peak tariff laundry'],
+  ['HIGH_LOAD_WATER_HEATER', 'High-load water heater'],
 ];
 const stages = ['PERCEPTION', 'PREDICTION', 'REASONING', 'DECISION', 'ACTION', 'FEEDBACK'];
 const readable = (value, fallback = '—') => value === null || value === undefined ? fallback : value;
@@ -119,6 +120,14 @@ export function DashboardPage() {
         <div className="decision-main">{decision ? <><div className="decision-action">{String(decision.chosen_strategy || decision.selected_action || 'Decision ready').replaceAll('_', ' ')}</div><div className="decision-reason">{lastStep.stage_7_explanation || 'The agent selected an action from its evaluated candidates.'}</div></> : <Empty text="Run an agent step to see perception → prediction → reasoning → action." />}</div>
         <div className="pipeline">{stages.map((stage, index) => <React.Fragment key={stage}><div className={`pipeline-stage ${lastStep && index <= 5 ? 'done' : ''}`}><span>{lastStep && index < 5 ? <Check size={12} /> : index + 1}</span>{stage}</div>{index < stages.length - 1 && <ChevronRight size={14} />}</React.Fragment>)}</div>
         {lastStep && <div className="decision-grid"><div><span>Cooling requirement</span><b>{readable(prediction.cooling_energy_needed_kwh)} kWh</b></div><div><span>Prediction source</span><b>{readable(prediction.prediction_source)}</b></div><div><span>Expected energy</span><b>{readable(decision.expected_energy_kwh)} kWh</b></div><div><span>Expected cost</span><b>{readable(decision.projected_hourly_cost_usd)}</b></div></div>}
+      </Card>
+      <Card title="Appliance recommendations" eyebrow="Washing machine · water heater" icon={Power} className="explain-card">
+        {lastStep?.appliance_decisions ? Object.entries(lastStep.appliance_decisions).map(([id, item]) => <div className="mini-list" key={id}>
+          <div><span>{id.replaceAll('_', ' ')}</span><b>{item.selected_action || item.chosen_strategy}</b></div>
+          <small>{item.reason}</small>
+          {item.schedule && <small>Schedule: {item.schedule.status} in {item.schedule.delay_minutes} min at {item.schedule.target_rate}/kWh</small>}
+          {item.override_respected && <small>Override respected</small>}
+        </div>) : <Empty text="Run an agent step to see appliance recommendations." />}
       </Card>
       <Card title="Why this decision?" eyebrow="Explainable reasoning" icon={Sparkles} className="explain-card">
         {lastStep ? <><p className="explanation">{lastStep.stage_7_explanation}</p><div className="mini-list"><div><span>Observed temperature</span><b>{readable(lastStep.stage_1_perception?.indoor_temperature_c)}°C</b></div><div><span>Occupancy</span><b>{readable(lastStep.stage_1_perception?.occupancy)}</b></div><div><span>Tariff</span><b>{readable(lastStep.stage_1_perception?.tariff_tier)}</b></div><div><span>Feedback</span><b>{readable(feedback.feedback_signal)}</b></div></div></> : <Empty text="The agent's natural-language rationale appears here." />}

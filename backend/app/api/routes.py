@@ -155,6 +155,18 @@ async def get_agent_history(limit: int = Query(50, ge=1, le=500), db: AsyncSessi
     return {"count": len(rows), "history": [_record_to_dict(row) for row in rows]}
 
 
+@router.get("/agent/feedback")
+async def get_agent_feedback(limit: int = Query(50, ge=1, le=500), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(FeedbackEvent).order_by(desc(FeedbackEvent.id)).limit(limit))).scalars().all()
+    return {"count": len(rows), "feedback": [_record_to_dict(row) for row in rows]}
+
+
+@router.get("/agent/decision-logs")
+async def get_agent_decision_logs(limit: int = Query(50, ge=1, le=500), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(AgentDecisionLog).order_by(desc(AgentDecisionLog.id)).limit(limit))).scalars().all()
+    return {"count": len(rows), "logs": [_record_to_dict(row) for row in rows]}
+
+
 @router.get("/anomalies")
 async def get_anomalies(limit: int = Query(50, ge=1, le=500), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(AnomalyRecord).order_by(desc(AnomalyRecord.id)).limit(limit))).scalars().all()
@@ -338,5 +350,39 @@ async def legacy_agent_step(db: AsyncSession = Depends(get_db)):
         estimated_cost_saving=result["stage_4_decision"].get("projected_hourly_cost_usd", 0.0),
         comfort_score=result["stage_6_feedback"].get("comfort_satisfaction_pct", 100.0) / 100.0,
         explanation=result["stage_7_explanation"]))
+    # Persist all autonomous appliance outcomes alongside the unchanged AC
+    # seven-stage record. Delays are audit records only and never claim a run.
+    for appliance_id, app_decision in result.get("appliance_decisions", {}).items():
+        selected = next((candidate for candidate in result["appliance_candidates"][appliance_id]
+                         if candidate["id"] == app_decision["chosen_strategy"]), {})
+        db.add(AgentDecision(
+            decision=app_decision["chosen_strategy"], reason=app_decision["reason"],
+            selected_action=app_decision, expected_energy=selected.get("power_kw", 0.0) * 0.5,
+            expected_cost=selected.get("rate", 0.0) * selected.get("power_kw", 0.0) * 0.5,
+            sensor_snapshot=result["stage_1_perception"],
+            predictions={"load_before_kw": app_decision.get("load_before_kw"),
+                         "load_after_kw": app_decision.get("load_after_kw")},
+            candidate_actions=result["appliance_candidates"][appliance_id],
+            candidate_scores={c["id"]: c["total_utility"] for c in result["appliance_candidates"][appliance_id]},
+        ))
+        db.add(FeedbackEvent(
+            event_type="APPLIANCE_AUTONOMY",
+            payload={"appliance_id": appliance_id, "selected_action": app_decision["chosen_strategy"],
+                     "execution_status": result["appliance_actions"][appliance_id]["execution_status"],
+                     "target_rate": selected.get("target_rate"),
+                     "cost_difference": selected.get("cost_difference"),
+                     "load_before_kw": selected.get("load_before_kw"),
+                     "load_after_kw": selected.get("load_after_kw"),
+                     "schedule": app_decision.get("schedule"),
+                     "success": app_decision.get("action_success")},
+            source="AGENT",
+        ))
+        db.add(AgentDecisionLog(
+            stage_data={"step_id": result["step_id"], "appliance_id": appliance_id,
+                        "decision": app_decision, "candidates": result["appliance_candidates"][appliance_id],
+                        "action": result["appliance_actions"][appliance_id]},
+            selected_action=app_decision["chosen_strategy"],
+            estimated_cost_saving=app_decision.get("expected_cost_saving", 0.0),
+            comfort_score=1.0, explanation=app_decision["reason"]))
     await db.commit()
     return result

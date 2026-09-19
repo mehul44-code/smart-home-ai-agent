@@ -18,6 +18,16 @@ class ScenarioRegistry:
     """
 
     SCENARIOS: Dict[str, DemoScenario] = {
+        "PEAK_TARIFF_LAUNDRY": DemoScenario(
+            id="PEAK_TARIFF_LAUNDRY", name="Peak tariff laundry",
+            description="Peak pricing with a pending washing-machine load.",
+            purpose="Demonstrate laundry scheduling against the real future off-peak tariff."
+        ),
+        "HIGH_LOAD_WATER_HEATER": DemoScenario(
+            id="HIGH_LOAD_WATER_HEATER", name="High-load water heater",
+            description="High simultaneous household load with water-heater demand.",
+            purpose="Demonstrate water-heater delay and peak-load reduction."
+        ),
         "SCENARIO_1_NORMAL_HOME": DemoScenario(
             id="SCENARIO_1_NORMAL_HOME",
             name="Normal Home",
@@ -131,6 +141,15 @@ class ScenarioRegistry:
                 is_user_override=True,
                 override_reason="User explicitly requested maximum cooling"
             )
+
+        elif matched_id == "PEAK_TARIFF_LAUNDRY":
+            engine.change_tariff(TariffTier.PEAK, rate=12.0)
+            # A pending load remains OFF; autonomy decides whether to start it.
+
+        elif matched_id == "HIGH_LOAD_WATER_HEATER":
+            engine.appliances.execute_action("ac_living_room", "ON", power_watts=1500.0)
+            engine.appliances.execute_action("washing_machine", "ON", power_watts=800.0)
+            engine.appliances.execute_action("water_heater", "ON", power_watts=2000.0)
 
         return {
             "success": True,

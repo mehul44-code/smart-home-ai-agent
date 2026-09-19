@@ -40,6 +40,21 @@ export function AgentReasoningBox({ lastStepData }) {
           Strategy: {lastStepData.stage_4_decision?.chosen_strategy}
         </span>
       </div>
+      {lastStepData.appliance_decisions && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+          {Object.entries(lastStepData.appliance_decisions).map(([id, item]) => (
+            <div key={id} style={{ padding: '0.75rem', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
+              <strong>{id.replaceAll('_', ' ')}</strong>
+              <div style={{ color: 'var(--accent-cyan)', marginTop: '0.25rem' }}>{item.selected_action || item.chosen_strategy}</div>
+              <small>{item.reason}</small>
+              {item.schedule && <small style={{ display: 'block', marginTop: '0.25rem' }}>
+                {item.schedule.status}: {item.schedule.delay_minutes} min · {item.schedule.target_rate}/kWh
+              </small>}
+              {item.override_respected && <small style={{ display: 'block', color: 'var(--accent-amber)' }}>User override respected</small>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Stage Selector Pills */}
       <div style={{
