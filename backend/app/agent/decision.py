@@ -47,7 +47,10 @@ class DecisionEngine:
     def decide_appliance(self, percept: dict, candidates: List[dict], appliance_id: str) -> dict:
         app = percept["appliances"][appliance_id]
         override = bool(app.get("is_user_override") or percept.get("overrides", {}).get(appliance_id))
-        if override:
+        if candidates and candidates[0].get("id") == "NO_OP":
+            chosen = candidates[0]
+            chosen = {**chosen, "safe": True, "override_respected": True}
+        elif override:
             # Preserve the appliance's observed state rather than presenting a
             # new autonomous command that could be mistaken for a reversal.
             chosen_id = "RUN_NOW" if app.get("status") == "ON" else "DELAY"
@@ -59,7 +62,8 @@ class DecisionEngine:
         run_now = chosen["id"] == "RUN_NOW"
         is_heater = appliance_id == "water_heater"
         if chosen["id"] == "NO_OP":
-            reason = "No water-heating demand is active; appliance remains idle."
+            appliance_name = "water-heating" if is_heater else "washing-machine"
+            reason = f"No {appliance_name} demand is active; appliance remains idle."
             schedule = None
             selected_action = "NO_OP"
             action_requested = False

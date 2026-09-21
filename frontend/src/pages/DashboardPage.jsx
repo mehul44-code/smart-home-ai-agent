@@ -13,6 +13,7 @@ const scenarios = [
   ['NORMAL_HOME', 'Normal home'], ['HOT_OCCUPIED_ROOM', 'Hot room'], ['EMPTY_ROOM', 'Empty room'],
   ['PEAK_TARIFF', 'Peak tariff'], ['HIGH_ENERGY_LOAD', 'High energy load'], ['ENERGY_ANOMALY', 'Energy anomaly'],
   ['USER_OVERRIDE', 'User override'], ['PEAK_TARIFF_LAUNDRY', 'Peak tariff laundry'],
+  ['OFF_PEAK_LAUNDRY', 'Off-peak laundry'], ['HIGH_PRIORITY_LAUNDRY', 'High-priority laundry'],
   ['HIGH_LOAD_WATER_HEATER', 'High-load water heater'],
 ];
 const stages = ['PERCEPTION', 'PREDICTION', 'REASONING', 'DECISION', 'ACTION', 'FEEDBACK'];
@@ -118,8 +119,8 @@ export function DashboardPage() {
 
     <div className="metric-grid">
       <Metric icon={Thermometer} label="Indoor temperature" value={`${readable(rooms.living_room?.temperature_c)}°C`} detail={`Humidity ${readable(rooms.living_room?.humidity_pct)}%`} accent="orange" />
-      <Metric icon={Users} label="Occupancy" value={state?.occupancy?.total_occupants ?? 0} detail={state?.occupancy?.is_occupied ? 'People detected' : 'No one home'} accent="purple" />
-      <Metric icon={Gauge} label="Current load" value={kw(state?.total_load_watts)} detail={`Energy ${readable(state?.total_energy_kwh, '—')} kWh`} accent="blue" />
+      <Metric icon={Users} label="Occupancy" value={cycleState?.occupancy?.total_occupants ?? cycleState?.occupancy_detail?.total_occupants ?? 0} detail={(cycleState?.occupancy?.is_occupied ?? cycleState?.occupancy_detail?.is_occupied) ? 'People detected' : 'No one home'} accent="purple" />
+      <Metric icon={Gauge} label="Current load" value={kw(cycleState?.total_load_watts)} detail={`Energy ${readable(cycleState?.total_energy_kwh, '—')} kWh`} accent="blue" />
       <Metric icon={Zap} label="Electricity tariff" value={tariffName(currentTariff)} detail={currentTariff.rate != null ? `₹${Number(currentTariff.rate).toFixed(2)}/kWh now · next off-peak ₹${Number(currentTariff.next_off_peak_rate ?? currentTariff.next_rate ?? currentTariff.rate).toFixed(2)}/kWh in ${currentTariff.next_off_peak_minutes ?? currentTariff.minutes_until_next_tier ?? 0} min` : 'Rate unavailable'} accent="green" />
       <Metric icon={Sparkles} label="Comfort score" value={feedback.comfort_satisfaction_pct != null ? `${feedback.comfort_satisfaction_pct}%` : '—'} detail="Latest agent feedback" accent="teal" />
       <Metric icon={Activity} label="Energy saved" value={lastStep?.stage_4_decision?.estimated_energy_saving_kwh != null ? `${lastStep.stage_4_decision.estimated_energy_saving_kwh} kWh` : '—'} detail="Backend comparison" accent="green" />
@@ -167,6 +168,6 @@ export function DashboardPage() {
       <Card title="User preference mode" eyebrow="Agent objective weights" icon={Users}><div className="preference-buttons">{['BALANCED', 'COMFORT', 'ENERGY_SAVING'].map((mode) => <button key={mode} className={preferences?.selected_mode === mode ? 'selected' : ''} onClick={() => selectMode(mode)} disabled={busy === 'preference'}>{mode.replace('_', ' ')}</button>)}</div><p className="muted">Saved mode: <b>{preferences?.selected_mode || '—'}</b>. Changes are persisted through the agent API.</p></Card>
     </div>
 
-    <Card title="Competition demo" eyebrow="Backend scenarios" icon={Play}><div className="scenario-list">{scenarios.map(([id, label]) => <button key={id} onClick={() => run(id, () => api.loadScenario(id))} disabled={busy === id}>{busy === id ? <Loader2 className="spin" size={14} /> : <Play size={14} />}{label}</button>)}</div></Card>
+    <Card title="Competition demo" eyebrow="Backend scenarios" icon={Play}><div className="scenario-list">{scenarios.map(([id, label]) => <button key={id} onClick={() => run(id, async () => { await api.loadScenario(id); return api.triggerAgentStep(); })} disabled={busy === id}>{busy === id ? <Loader2 className="spin" size={14} /> : <Play size={14} />}{label}</button>)}</div></Card>
   </div>;
 }

@@ -10,6 +10,17 @@ class ReasoningEngine:
         self.peak_limit_kw = peak_limit_kw
 
     @staticmethod
+    def _washing_machine_has_demand(percept: Dict[str, Any]) -> bool:
+        app = (percept.get("appliances") or {}).get("washing_machine") or {}
+        if not app:
+            return False
+        status = str(app.get("status", "OFF")).upper()
+        current_power_kw = float(app.get("power_watts", 0) or 0) / 1000.0
+        # An active user-controlled load is still a genuine job. An override
+        # that leaves the machine OFF is preserved without inventing a job.
+        return current_power_kw > 0.0 or status in {"ON", "ECO"}
+
+    @staticmethod
     def _water_heater_has_demand(percept: Dict[str, Any]) -> bool:
         app = (percept.get("appliances") or {}).get("water_heater") or {}
         if not app:
@@ -91,6 +102,46 @@ class ReasoningEngine:
         if app is None:
             raise ValueError(f"Required appliance {appliance_id} is missing")
         if appliance_id == "washing_machine":
+            if not self._washing_machine_has_demand(percept):
+                current_rate = float(percept["current_tariff_rate"])
+                current_load_kw = float(percept["total_power_kw"])
+                override = bool(app.get("is_user_override") or percept.get("overrides", {}).get(appliance_id))
+                return [{
+                    "id": "NO_OP",
+                    "label": "No washing-machine demand is active; appliance remains idle.",
+                    "appliance_id": appliance_id,
+                    "safe": True,
+                    "rejection_reason": None,
+                    "total_loss": 0.0,
+                    "total_utility": 0.0,
+                    "rate": current_rate,
+                    "current_rate": current_rate,
+                    "target_rate": current_rate,
+                    "delay_minutes": 0,
+                    "future_rate": float(percept.get("next_off_peak_rate", current_rate)),
+                    "cost_now": 0.0,
+                    "cost_delayed": 0.0,
+                    "current_cost": 0.0,
+                    "delayed_cost": 0.0,
+                    "savings": 0.0,
+                    "planned_start": None,
+                    "power_kw": 0.0,
+                    "current_power_kw": 0.0,
+                    "candidate_run_power_kw": 0.0,
+                    "appliance_load_kw": 0.0,
+                    "household_load_kw": round(max(0.0, current_load_kw), 3),
+                    "load_before_kw": round(current_load_kw, 3),
+                    "load_after_kw": round(current_load_kw, 3),
+                    "peak_reduction_kw": 0.0,
+                    "cost_difference": 0.0,
+                    "priority": str(app.get("priority", "LOW")),
+                    "override_active": override,
+                    "override_respected": True,
+                    "is_peak": str(percept.get("tariff_tier")) in {"PEAK", "CRITICAL_PEAK"},
+                    "projected_load_kw": round(current_load_kw, 3),
+                    "shiftable": bool(app.get("is_shiftable", True)),
+                    "demand_detected": False,
+                }]
             actions = ("RUN_NOW", "DELAY", "SCHEDULE_FOR_OFF_PEAK")
         elif appliance_id == "water_heater":
             if not self._water_heater_has_demand(percept):
@@ -137,6 +188,7 @@ class ReasoningEngine:
                     "peak_status": "WITHIN_LIMIT",
                     "ac_interaction": "no_active_AC",
                     "washing_machine_interaction": "no_active_washer",
+                    "demand_detected": False,
                 }]
             actions = ("RUN_NOW", "DELAY")
         else:
@@ -149,6 +201,8 @@ class ReasoningEngine:
             energy_priority = max(energy_priority, 0.8)
         priority_weight = {"CRITICAL": 2.0, "HIGH": 1.5, "MEDIUM": 1.0, "LOW": 0.65}.get(
             str(app.get("priority", "MEDIUM")), 1.0)
+        priority = str(app.get("priority", "MEDIUM")).upper()
+        urgent_priority = appliance_id == "washing_machine" and priority in {"CRITICAL", "HIGH"}
         current_rate = float(percept["current_tariff_rate"])
         future_rate = float(percept.get("next_off_peak_rate", percept.get("tariff", {}).get("next_rate", current_rate)))
         delay_minutes = int(percept.get("next_off_peak_minutes", percept.get("tariff", {}).get("minutes_until_next_tier", 0)))
@@ -182,6 +236,9 @@ class ReasoningEngine:
                 rejection_reason = "User override active; autonomous action suppressed."
             elif delayed and not shiftable:
                 rejection_reason = "Appliance cannot be shifted; delay candidate rejected."
+            elif action == "SCHEDULE_FOR_OFF_PEAK" and current_rate <= future_rate:
+                safety = False
+                rejection_reason = "Current tariff is already at or below the future off-peak rate."
             shift_penalty = (0.05 * priority_weight if delayed else 0.0)
             delay_penalty = (delay_minutes / 1440.0) * (1.0 - min(1.0, priority_weight / 2.0)) if delayed else 0.0
             rate_gap = max(0.0, current_rate - future_rate)
@@ -195,6 +252,8 @@ class ReasoningEngine:
                     delay_penalty += 1.25 + (delay_minutes / 180.0)
                 elif modeled_load > peak_limit or ac_kw > 0 or washer_kw > 0:
                     delay_penalty -= 0.45
+            if urgent_priority and delayed:
+                delay_penalty += 3.0
             economic_term = cost_delayed if delayed else cost_now
             peak_term = peak_after * 0.55 if delayed else peak_after * 0.35
             if delayed:
@@ -230,6 +289,7 @@ class ReasoningEngine:
                 "is_peak": str(percept.get("tariff_tier")) in {"PEAK", "CRITICAL_PEAK"},
                 "projected_load_kw": round(modeled_load, 3),
                 "shiftable": shiftable,
+                "demand_detected": True,
             })
             if appliance_id == "water_heater":
                 candidates[-1].update({

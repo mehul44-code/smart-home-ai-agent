@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.simulator.weather import WeatherCondition
 from backend.app.simulator.tariff import TariffTier
+from backend.app.simulator.appliances import PriorityLevel
 
 
 class DemoScenario(BaseModel):
@@ -18,6 +19,16 @@ class ScenarioRegistry:
     """
 
     SCENARIOS: Dict[str, DemoScenario] = {
+        "OFF_PEAK_LAUNDRY": DemoScenario(
+            id="OFF_PEAK_LAUNDRY", name="Off-peak laundry",
+            description="A pending washing-machine load during the lowest available tariff.",
+            purpose="Demonstrate a genuine RUN_NOW decision when waiting has no tariff benefit."
+        ),
+        "HIGH_PRIORITY_LAUNDRY": DemoScenario(
+            id="HIGH_PRIORITY_LAUNDRY", name="High-priority laundry",
+            description="A pending washing-machine load marked high priority with a meaningful completion preference.",
+            purpose="Demonstrate priority-aware RUN_NOW selection without bypassing tariff scoring."
+        ),
         "PEAK_TARIFF_LAUNDRY": DemoScenario(
             id="PEAK_TARIFF_LAUNDRY", name="Peak tariff laundry",
             description="Peak pricing with a pending washing-machine load.",
@@ -71,18 +82,28 @@ class ScenarioRegistry:
             purpose="Verify that manual user overrides take precedence and are strictly preserved."
         )
     }
+    ALIASES = {
+        "NORMAL_HOME": "SCENARIO_1_NORMAL_HOME",
+        "HOT_OCCUPIED_ROOM": "SCENARIO_2_HOT_OCCUPIED_ROOM",
+        "EMPTY_ROOM": "SCENARIO_3_EMPTY_ROOM",
+        "PEAK_TARIFF": "SCENARIO_4_PEAK_TARIFF",
+        "HIGH_ENERGY_LOAD": "SCENARIO_5_HIGH_ENERGY_LOAD",
+        "ENERGY_ANOMALY": "SCENARIO_6_ENERGY_ANOMALY",
+        "USER_OVERRIDE": "SCENARIO_7_USER_OVERRIDE",
+    }
 
     @classmethod
     def apply_scenario(cls, scenario_id: str, engine: Any) -> Dict[str, Any]:
         """Applies scenario environmental and appliance configurations to the simulation engine."""
         scenario_key = scenario_id.upper().replace(" ", "_").replace("-", "_")
 
-        # Fallback matching
-        matched_id = None
-        for k in cls.SCENARIOS:
-            if scenario_key in k or k in scenario_key:
-                matched_id = k
-                break
+        matched_id = scenario_key if scenario_key in cls.SCENARIOS else cls.ALIASES.get(scenario_key)
+        if matched_id is None:
+            # Retain compatibility with descriptive/legacy identifiers.
+            for k in cls.SCENARIOS:
+                if scenario_key in k or k in scenario_key:
+                    matched_id = k
+                    break
 
         if not matched_id:
             return {"success": False, "error": f"Unknown scenario '{scenario_id}'. Available: {list(cls.SCENARIOS.keys())}"}
@@ -144,7 +165,18 @@ class ScenarioRegistry:
 
         elif matched_id == "PEAK_TARIFF_LAUNDRY":
             engine.change_tariff(TariffTier.PEAK, rate=12.0)
-            # A pending load remains OFF; autonomy decides whether to start it.
+            engine.appliances.execute_action("washing_machine", "ON", power_watts=800.0)
+            # An active load represents a genuine pending washer request.
+
+        elif matched_id == "OFF_PEAK_LAUNDRY":
+            engine.change_tariff(TariffTier.OFF_PEAK, rate=4.0)
+            engine.appliances.execute_action("washing_machine", "ON", power_watts=800.0)
+            # An active load represents a genuine pending washer request.
+
+        elif matched_id == "HIGH_PRIORITY_LAUNDRY":
+            engine.appliances.appliances["washing_machine"].priority = PriorityLevel.HIGH
+            engine.appliances.execute_action("washing_machine", "ON", power_watts=800.0)
+            # Priority-aware autonomy decides whether the active request should continue now.
 
         elif matched_id == "HIGH_LOAD_WATER_HEATER":
             engine.appliances.execute_action("ac_living_room", "ON", power_watts=1500.0)
